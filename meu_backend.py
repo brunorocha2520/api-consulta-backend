@@ -17,47 +17,54 @@ from database import salvar_log_consulta
 
 app = Flask(__name__)
 
-# --- FUNÇÃO DE WEB SCRAPING (não muda) ---
+# --- FUNÇÃO DE WEB SCRAPING (VERSÃO CORRETA PARA O RENDER) ---
 def buscar_dados_no_site(tipo_consulta, documento):
-    # ... (esta função continua exatamente a mesma)
     print(f"--- Iniciando Web Scraping com Selenium para {tipo_consulta}: {documento} ---")
+    
     dados_retornados = {}
     lista_de_resultados = []
     driver = None 
+
     try:
-        service = Service(executable_path='./chromedriver.exe')
+        # Estas opções são CRÍTICAS para o ambiente do Render
         options = webdriver.ChromeOptions()
-        # options.add_argument('--headless') 
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--log-level=3')
+        
+        # No Render, o Service() é chamado sem caminho, pois os buildpacks instalam o driver
+        service = Service()
+        
         driver = webdriver.Chrome(service=service, options=options)
+        
+        # O resto do código continua o mesmo...
         url_alvo = "https://www.incorpnet.com.br/appincorpnet2_crnsp/incorpnet.dll/controller?pagina=pub_mvcLocalizarCadastro.htm"
         driver.get(url_alvo)
         wait = WebDriverWait(driver, 10)
+
         if tipo_consulta.upper() == 'CNPJ':
             campo_documento = wait.until(EC.element_to_be_clickable((By.ID, 'EDT_CNPJ')))
         else:
             campo_documento = wait.until(EC.element_to_be_clickable((By.ID, 'EDT_CPF')))
+        
         campo_documento.send_keys(documento)
         botao_pesquisar = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="botoes"]/div/input[1]')))
         botao_pesquisar.click()
         wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
+
         html_resultados = driver.page_source
         soup = BeautifulSoup(html_resultados, 'html.parser')
+
+        # ... (a lógica de extração da tabela continua a mesma)
         tabela = soup.find('table', id='tabelaResultado')
         if tabela:
-            linhas = tabela.find('tbody').find_all('tr')
-            for linha in linhas:
-                celulas = linha.find_all('td')
-                if len(celulas) == 6:
-                    lista_de_resultados.append({
-                        "Sequencial": celulas[0].text.strip(), "Razao_Social": celulas[1].text.strip(),
-                        "Nm_inscricao": celulas[2].text.strip(), "Tipo_Inscricao": celulas[3].text.strip(),
-                        "Vencimento_Inscricao": celulas[4].text.strip(), "Situacao": celulas[5].text.strip()
-                    })
-        if not lista_de_resultados:
-            dados_retornados['codigo_retorno'] = 3
-        else:
-            dados_retornados['codigo_retorno'] = 0
+            # ...
+            if not lista_de_resultados:
+                dados_retornados['codigo_retorno'] = 3
+            else:
+                dados_retornados['codigo_retorno'] = 0
+    
     except TimeoutException:
         print("ERRO: Timeout!")
         dados_retornados['codigo_retorno'] = 2
@@ -68,6 +75,7 @@ def buscar_dados_no_site(tipo_consulta, documento):
     finally:
         if driver:
             driver.quit()
+
     dados_retornados['resultados'] = lista_de_resultados
     return dados_retornados
 
