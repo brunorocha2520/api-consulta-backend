@@ -17,7 +17,7 @@ from database import salvar_log_consulta
 
 app = Flask(__name__)
 
-# --- FUNÇÃO DE WEB SCRAPING (VERSÃO CORRETA PARA O RENDER) ---
+# --- FUNÇÃO DE WEB SCRAPING (OTIMIZADA PARA POUCA MEMÓRIA) ---
 def buscar_dados_no_site(tipo_consulta, documento):
     print(f"--- Iniciando Web Scraping com Selenium para {tipo_consulta}: {documento} ---")
     
@@ -26,22 +26,27 @@ def buscar_dados_no_site(tipo_consulta, documento):
     driver = None 
 
     try:
-        # Estas opções são CRÍTICAS para o ambiente do Render
         options = webdriver.ChromeOptions()
+        # ========================================================================
+        # >> OPÇÕES OTIMIZADAS PARA AMBIENTES COM POUCA MEMÓRIA (RENDER FREE) <<
+        # ========================================================================
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--log-level=3')
+        options.add_argument('--disable-gpu')
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-infobars")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--single-process")
+        # ========================================================================
         
-        # No Render, o Service() é chamado sem caminho, pois os buildpacks instalam o driver
         service = Service()
-        
         driver = webdriver.Chrome(service=service, options=options)
         
-        # O resto do código continua o mesmo...
         url_alvo = "https://www.incorpnet.com.br/appincorpnet2_crnsp/incorpnet.dll/controller?pagina=pub_mvcLocalizarCadastro.htm"
         driver.get(url_alvo)
-        wait = WebDriverWait(driver, 10)
+
+        wait = WebDriverWait(driver, 20) # Aumentado o tempo de espera para 20s
 
         if tipo_consulta.upper() == 'CNPJ':
             campo_documento = wait.until(EC.element_to_be_clickable((By.ID, 'EDT_CNPJ')))
@@ -49,24 +54,35 @@ def buscar_dados_no_site(tipo_consulta, documento):
             campo_documento = wait.until(EC.element_to_be_clickable((By.ID, 'EDT_CPF')))
         
         campo_documento.send_keys(documento)
+        
         botao_pesquisar = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="botoes"]/div/input[1]')))
         botao_pesquisar.click()
+
         wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
 
         html_resultados = driver.page_source
         soup = BeautifulSoup(html_resultados, 'html.parser')
-
-        # ... (a lógica de extração da tabela continua a mesma)
+        
+        # ... (O resto da função continua exatamente igual) ...
         tabela = soup.find('table', id='tabelaResultado')
         if tabela:
-            # ...
-            if not lista_de_resultados:
-                dados_retornados['codigo_retorno'] = 3
-            else:
-                dados_retornados['codigo_retorno'] = 0
-    
+            linhas = tabela.find('tbody').find_all('tr')
+            for linha in linhas:
+                celulas = linha.find_all('td')
+                if len(celulas) == 6:
+                    lista_de_resultados.append({
+                        "Sequencial": celulas[0].text.strip(), "Razao_Social": celulas[1].text.strip(),
+                        "Nm_inscricao": celulas[2].text.strip(), "Tipo_Inscricao": celulas[3].text.strip(),
+                        "Vencimento_Inscricao": celulas[4].text.strip(), "Situacao": celulas[5].text.strip()
+                    })
+        
+        if not lista_de_resultados:
+            dados_retornados['codigo_retorno'] = 3
+        else:
+            dados_retornados['codigo_retorno'] = 0
+
     except TimeoutException:
-        print("ERRO: Timeout!")
+        print("ERRO: Timeout! A página ou um elemento demorou muito para responder.")
         dados_retornados['codigo_retorno'] = 2
     except Exception as e:
         print(f"ERRO inesperado no scraping: {e}")
